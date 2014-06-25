@@ -203,32 +203,38 @@
     constructor: Tokenfield
 
   , createToken: function (attrs, triggerChange) {
-      var _self = this
+      var _self = this, opts = this.options;
 
-      if (typeof attrs === 'string') {
-        attrs = { value: attrs, label: attrs }
-      }
+      if (typeof attrs === 'string') {attrs = { value: attrs, label: attrs}};
+      if (typeof triggerChange === 'undefined') {triggerChange = true};
 
-      if (typeof triggerChange === 'undefined') {
-         triggerChange = true
-      }
-
-      // Normalize label and value
+      // Normalize label and value, $.trim returns empty string when value/label is undef 
+      // so lengths are guaranteed to be >=0
       attrs.value = $.trim(attrs.value);
-      attrs.label = attrs.label && attrs.label.length ? $.trim(attrs.label) : attrs.value
+      attrs.label = $.trim(attrs.label);
 
-      // Bail out if has no value or label, or label is too short
-      if (!attrs.value.length || !attrs.label.length || attrs.label.length <= this.options.minLength) return
+      // Bail out if empty value or label is too short
+      if (!attrs.value.length || attrs.label.length <= opts.minLength) return;
 
       // Bail out if maximum number of tokens is reached
-      if (this.options.limit && this.getTokens().length >= this.options.limit) return
+      var existingToks = this.getTokens();
+      if (opts.limit && existingToks.length >= opts.limit) return;
 
       // Allow changing token data before creating it
-      var createEvent = $.Event('tokenfield:createtoken', { attrs: attrs })
-      this.$element.trigger(createEvent)
+      var createEvent = $.Event('tokenfield:createtoken', { attrs: attrs });
+      this.$element.trigger(createEvent);
 
       // Bail out if there if attributes are empty or event was defaultPrevented
-      if (!createEvent.attrs || createEvent.isDefaultPrevented()) return
+      if (!createEvent.attrs || createEvent.isDefaultPrevented()) return;
+      
+      // Check for duplicates
+      if(this.checkDuplicate(existingToks, attrs)){
+          // Clear duplicate input and animate the existing dups
+          this.$input.val('');
+          var duplicate = this.$wrapper.find( '.token[data-value="' + attrs.value + '"]' ).addClass('duplicate');
+          setTimeout(function() {duplicate.removeClass('duplicate');}, 250);
+          return;
+      };
 
       var $token = $('<div class="token" />')
             .attr('data-value', attrs.value)
@@ -969,7 +975,23 @@
 
       return $_element;
   }
+  , checkDuplicate: function(existingToks, newTok){
+      var dupChecker = this.options.duplicateChecker || null, hasDup = false;
+      if(dupChecker === true || dupChecker === 'compare'){
+          dupChecker = function(tok1, tok2){return tok1.value === tok2.value;};          
+      } else if(dupChecker === 'icompare'){
+          dupChecker = function(tok1, tok2){return tok1.value.toLowerCase() == tok2.value.toLowerCase();};
+      }
 
+      if (dupChecker){
+          var dups = $.grep(existingToks, function (tok){return dupChecker.call(null, tok, newTok);});
+          if( dups.length ){
+              this.$element.trigger( $.Event('tokenfield:preventduplicate', {token : newTok}) );
+              hasDup = true;
+          };
+      }
+      return hasDup;
+  }
   }
 
 
@@ -1010,7 +1032,8 @@
     showAutocompleteOnFocus: false,
     createTokensOnBlur: false,
     delimiter: ',',
-    beautify: true
+    beautify: true,
+    duplicateChecker: false
   }
 
   $.fn.tokenfield.Constructor = Tokenfield
